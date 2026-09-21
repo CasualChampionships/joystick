@@ -1,0 +1,14 @@
+[versions]
+java  = "17"
+gson  = "2.14.0"
+junit = "5.14.4"
+
+# Plugins
+plugin-publish = "2.2.1"
+
+[libraries]
+gson          = { module = "com.google.code.gson:gson"      , version.ref = "gson" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+
+[plugins]
+plugin-publish = { id = "com.gradle.plugin-publish", version.ref = "plugin-publish" }

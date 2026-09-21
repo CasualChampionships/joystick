@@ -1,0 +1,179 @@
+package net.casual.joystick
+
+import org.gradle.api.InvalidUserDataException
+import org.gradle.api.Plugin
+import org.gradle.api.Project
+import org.gradle.api.artifacts.Configuration
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.attributes.Bundling
+import org.gradle.api.attributes.Category
+import org.gradle.api.attributes.LibraryElements
+import org.gradle.api.attributes.Usage
+import org.gradle.api.plugins.JavaPlugin
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.SourceSetContainer
+import org.gradle.language.base.plugins.LifecycleBasePlugin
+import org.gradle.language.jvm.tasks.ProcessResources
+
+public class JoystickPlugin: Plugin<Project> {
+    override fun apply(project: Project) {
+        val extension = project.extensions.create("arcade", ArcadeExtension::class.java)
+        extension.group.convention(ARCADE_GROUP)
+        extension.include.convention(true)
+        extension.declareDependencies.convention(true)
+        extension.verify.convention(true)
+
+        val catalogue = ArcadeModuleCatalogue(project.dependencies)
+
+        val arcade = project.configurations.register(ARCADE_CONFIGURATION) {
+            description = "Arcade modules declared with arcade { modules(...) }"
+            isCanBeConsumed = false
+            isCanBeResolved = false
+            dependencies.addAllLater(project.provider {
+                val modules = extension.modules.get()
+                if (modules.isEmpty()) {
+                    return@provider emptyList()
+                }
+                val group = extension.group.get()
+                val version = extension.version.orNull
+                    ?: throw InvalidUserDataException("arcade.version must be set when arcade modules are declared")
+                catalogue.validate(group, version, modules)
+                modules.map { project.dependencies.create("$group:$it:$version") }
+            })
+        }
+
+        val arcadeClasspath = project.configurations.register(ARCADE_CLASSPATH_CONFIGURATION) {
+            description = "Every arcade module reachable from the declared ones"
+            isCanBeConsumed = false
+            isCanBeResolved = true
+            extendsFrom(arcade.get())
+            attributes {
+                attribute(Usage.USAGE_ATTRIBUTE, project.objects.named(Usage::class.java, Usage.JAVA_RUNTIME))
+                attribute(Category.CATEGORY_ATTRIBUTE, project.objects.named(Category::class.java, Category.LIBRARY))
+                attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, project.objects.named(LibraryElements::class.java, LibraryElements.JAR))
+                attribute(Bundling.BUNDLING_ATTRIBUTE, project.objects.named(Bundling::class.java, Bundling.EXTERNAL))
+            }
+        }
+
+        val resolvedModules: Provider<Map<String, ArcadeComponent>> = arcadeClasspath.flatMap { config ->
+            config.incoming.resolutionResult.rootComponent.zip(extension.group) { root, group ->
+                collectArcadeComponents(root, group)
+            }
+        }
+
+        this.configureInclude(project, extension, resolvedModules)
+        this.configureRepository(project)
+
+        project.plugins.withType(JavaPlugin::class.java) {
+            project.configurations.named(JavaPlugin.IMPLEMENTATION_CONFIGURATION_NAME) { extendsFrom(arcade.get()) }
+            configureModDependencies(project, extension, arcadeClasspath)
+            configureVerification(project, extension, resolvedModules)
+        }
+    }
+
+    private fun configureInclude(
+        project: Project,
+        extension: ArcadeExtension,
+        resolvedModules: Provider<Map<String, ArcadeComponent>>
+    ) {
+        project.configurations.named { it == INCLUDE_CONFIGURATION }.configureEach {
+            dependencies.addAllLater(extension.include.flatMap { enabled ->
+                if (!enabled) {
+                    return@flatMap project.provider { emptyList() }
+                }
+                resolvedModules.zip(extension.group) { modules, group ->
+                    modules.values.map { project.dependencies.create("$group:${it.name}:${it.version}") }
+                }
+            })
+        }
+    }
+
+    private fun configureRepository(project: Project) {
+        project.repositories.maven {
+            name = "Arcade"
+            url = project.uri(ARCADE_MAVEN)
+            content { includeGroup(ARCADE_GROUP) }
+        }
+    }
+
+    private fun configureModDependencies(
+        project: Project,
+        extension: ArcadeExtension,
+        arcadeClasspath: Provider<Configuration>
+    ) {
+        val dependencies: Provider<Map<String, String>> = extension.declareDependencies.flatMap fm@ { enabled ->
+            if (!enabled) {
+                return@fm project.provider { emptyMap() }
+            }
+            arcadeClasspath.flatMap { config ->
+                val group = extension.group.get()
+                val artifacts = config.incoming.artifactView {
+                    componentFilter { it is ModuleComponentIdentifier && it.group == group }
+                }.artifacts.resolvedArtifacts
+                artifacts.map { resolved ->
+                    resolved.mapNotNull { FabricModJson.readModIdAndVersion(it.file) }
+                        .associate { (id, version) -> id to ">=$version" }
+                        .toSortedMap()
+                }
+            }
+        }
+
+        project.tasks.named(JavaPlugin.PROCESS_RESOURCES_TASK_NAME, ProcessResources::class.java) {
+            inputs.property("arcadeDependencies", dependencies)
+            val file = destinationDir.resolve(FABRIC_MOD_JSON)
+            doLast("addArcadeDependencies") {
+                if (file.isFile) {
+                    FabricModJson.addDependencies(file, dependencies.get())
+                }
+            }
+        }
+    }
+
+    private fun configureVerification(
+        project: Project,
+        extension: ArcadeExtension,
+        resolvedModules: Provider<Map<String, ArcadeComponent>>
+    ) {
+        val sourceSets = project.extensions.getByType(SourceSetContainer::class.java)
+        val compileClasspath = project.configurations.named(sourceSets.getByName("main").compileClasspathConfigurationName)
+
+        val verify = project.tasks.register(VERIFY_TASK_NAME, VerifyArcadeModulesTask::class.java) {
+            group = LifecycleBasePlugin.VERIFICATION_GROUP
+            description = "Checks every arcade module on the compile classpath was declared with arcade { modules(...) }"
+            onlyIf { extension.verify.get() }
+            declared.set(resolvedModules.map { it.keys })
+            this.compileClasspath.set(compileClasspath.flatMap { config ->
+                config.incoming.resolutionResult.rootComponent.zip(extension.group) { root, group ->
+                    collectArcadeComponents(root, group).mapValues { (_, component) ->
+                        component.path.lastOrNull() ?: "direct dependency"
+                    }
+                }
+            })
+            bundled.set(compileClasspath.flatMap { config ->
+                val group = extension.group.get()
+                config.incoming.artifactView {
+                    componentFilter { it !is ModuleComponentIdentifier || it.group != group }
+                }.artifacts.resolvedArtifacts.map { resolved ->
+                    val bundled = LinkedHashMap<String, String>()
+                    for (artifact in resolved) {
+                        for (id in FabricModJson.readBundledModIds(artifact.file)) {
+                            bundled.putIfAbsent(id, artifact.id.componentIdentifier.displayName)
+                        }
+                    }
+                    bundled
+                }
+            })
+        }
+        project.tasks.named(LifecycleBasePlugin.CHECK_TASK_NAME) { dependsOn(verify) }
+    }
+
+    private companion object {
+        const val ARCADE_GROUP = "net.casualchampionships"
+        const val ARCADE_MAVEN = "https://maven.casualchampionships.net/snapshots"
+        const val ARCADE_CONFIGURATION = "arcade"
+        const val ARCADE_CLASSPATH_CONFIGURATION = "arcadeClasspath"
+        const val INCLUDE_CONFIGURATION = "include"
+        const val VERIFY_TASK_NAME = "verifyArcadeModules"
+        const val FABRIC_MOD_JSON = "fabric.mod.json"
+    }
+}
