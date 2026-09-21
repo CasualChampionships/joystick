@@ -45,6 +45,7 @@ public abstract class ArcadeExtension {
 
     /**
      * The declared modules, by artifact name, e.g. `arcade-nametags`.
+     * `arcade` is the aggregate that bundles every server-side module.
      */
     public abstract val modules: SetProperty<String>
 
@@ -67,10 +68,11 @@ public abstract class ArcadeExtension {
     }
 
     private fun normalise(name: String): String {
-        return if (name.startsWith(ARCADE_PREFIX)) name else ARCADE_PREFIX + name
+        return if (name == AGGREGATE || name.startsWith(ARCADE_PREFIX)) name else ARCADE_PREFIX + name
     }
 
     private companion object {
+        const val AGGREGATE = "arcade"
         const val ARCADE_PREFIX = "arcade-"
     }
 }

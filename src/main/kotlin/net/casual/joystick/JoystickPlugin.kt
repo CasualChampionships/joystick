@@ -61,7 +61,7 @@ public class JoystickPlugin: Plugin<Project> {
             }
         }
 
-        this.configureInclude(project, extension, resolvedModules)
+        this.configureInclude(project, extension, arcadeClasspath)
         this.configureRepository(project)
 
         project.plugins.withType(JavaPlugin::class.java) {
@@ -74,25 +74,38 @@ public class JoystickPlugin: Plugin<Project> {
     private fun configureInclude(
         project: Project,
         extension: ArcadeExtension,
-        resolvedModules: Provider<Map<String, ArcadeComponent>>
+        arcadeClasspath: Provider<Configuration>
     ) {
+        val nested: Provider<List<String>> = extension.include.flatMap fm@ { enabled ->
+            if (!enabled) {
+                return@fm project.provider { emptyList() }
+            }
+            arcadeClasspath.flatMap { config ->
+                val group = extension.group.get()
+                config.incoming.artifactView {
+                    componentFilter { it is ModuleComponentIdentifier && it.group == group }
+                }.artifacts.resolvedArtifacts.map { resolved ->
+                    val bundled = resolved.flatMapTo(HashSet()) { FabricModJson.readBundledModIds(it.file) }
+                    resolved.filter { (FabricModJson.readModIdAndVersion(it.file)?.first ?: "") !in bundled }
+                        .map { it.id.componentIdentifier.displayName }
+                        .sorted()
+                }
+            }
+        }
         project.configurations.named { it == INCLUDE_CONFIGURATION }.configureEach {
-            dependencies.addAllLater(extension.include.flatMap { enabled ->
-                if (!enabled) {
-                    return@flatMap project.provider { emptyList() }
-                }
-                resolvedModules.zip(extension.group) { modules, group ->
-                    modules.values.map { project.dependencies.create("$group:${it.name}:${it.version}") }
-                }
-            })
+            dependencies.addAllLater(nested.map { coordinates -> coordinates.map { project.dependencies.create(it) } })
         }
     }
 
     private fun configureRepository(project: Project) {
-        project.repositories.maven {
-            name = "Arcade"
-            url = project.uri(ARCADE_MAVEN)
-            content { includeGroup(ARCADE_GROUP) }
+        project.afterEvaluate {
+            for ((name, url, groups) in REPOSITORIES) {
+                project.repositories.maven {
+                    this.name = name
+                    this.url = project.uri(url)
+                    content { groups.forEach(::includeGroup) }
+                }
+            }
         }
     }
 
@@ -169,11 +182,15 @@ public class JoystickPlugin: Plugin<Project> {
 
     private companion object {
         const val ARCADE_GROUP = "net.casualchampionships"
-        const val ARCADE_MAVEN = "https://maven.casualchampionships.net/snapshots"
         const val ARCADE_CONFIGURATION = "arcade"
         const val ARCADE_CLASSPATH_CONFIGURATION = "arcadeClasspath"
         const val INCLUDE_CONFIGURATION = "include"
         const val VERIFY_TASK_NAME = "verifyArcadeModules"
         const val FABRIC_MOD_JSON = "fabric.mod.json"
+
+        val REPOSITORIES = listOf(
+            Triple("Arcade", "https://maven.casualchampionships.net/snapshots", listOf(ARCADE_GROUP, "com.github.ReplayMod")),
+            Triple("Nucleoid", "https://maven.nucleoid.xyz", listOf("xyz.nucleoid")),
+        )
     }
 }

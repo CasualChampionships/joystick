@@ -58,6 +58,27 @@ class JoystickPluginTest {
     }
 
     @Test
+    fun `the aggregate is nested alone because it bundles every module itself`() {
+        writeBuild(modules = "\"arcade\"")
+
+        val result = run("printInclude")
+
+        val included = result.output.lines().filter { it.startsWith("include: ") }.map { it.removePrefix("include: ") }
+        assertEquals(listOf("arcade"), included)
+    }
+
+    @Test
+    fun `modules outside the aggregate are accepted when published`() {
+        writeBuild(modules = "\"datagen\"")
+
+        val result = run("printInclude")
+
+        val included = result.output.lines().filter { it.startsWith("include: ") }.map { it.removePrefix("include: ") }
+        assertTrue("arcade-datagen" in included, result.output)
+        assertTrue("arcade-resource-pack-generation" in included, result.output)
+    }
+
+    @Test
     fun `include is empty when nesting is disabled`() {
         writeBuild(modules = "\"nametags\"", arcadeExtra = "include = false")
 
@@ -150,6 +171,7 @@ class JoystickPluginTest {
             repositories {
                 mavenCentral()
                 maven("https://maven.fabricmc.net/")
+                maven("https://jitpack.io")
             }
 
             // Stands in for the configuration fabric-loom registers.
@@ -178,8 +200,6 @@ class JoystickPluginTest {
         )
     }
 
-    // Publishes com.example:x:1.0 to repo/, a mod whose pom depends on arcade-commands and
-    // which optionally nests a stand-in for it.
     private fun writeBundlingMod(bundles: Boolean) {
         val dir = projectDir.resolve("repo/com/example/x/1.0").apply { mkdirs() }
         dir.resolve("x-1.0.pom").writeText(

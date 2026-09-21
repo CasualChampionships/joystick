@@ -17,7 +17,7 @@ internal class ArcadeModuleCatalogue(
 
     fun validate(group: String, version: String, modules: Set<String>) {
         val known = this.modules(group, version)
-        val unknown = modules - known
+        val unknown = (modules - known).filterNot { this.pom(group, it, version) != null }
         if (unknown.isEmpty()) {
             return
         }
@@ -45,6 +45,18 @@ internal class ArcadeModuleCatalogue(
                     "in the configured repositories"
             )
         return parseModules(pom, group)
+    }
+
+    private fun pom(group: String, module: String, version: String): File? {
+        val result = this.dependencies.createArtifactResolutionQuery()
+            .forModule(group, module, version)
+            .withArtifacts(MavenModule::class.java, MavenPomArtifact::class.java)
+            .execute()
+        return result.resolvedComponents
+            .flatMap { it.getArtifacts(MavenPomArtifact::class.java) }
+            .filterIsInstance<ResolvedArtifactResult>()
+            .firstOrNull()
+            ?.file
     }
 
     private fun parseModules(pom: File, group: String): Set<String> {
