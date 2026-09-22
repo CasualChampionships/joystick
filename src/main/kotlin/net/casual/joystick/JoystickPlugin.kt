@@ -25,12 +25,56 @@ public class JoystickPlugin: Plugin<Project> {
 
         val catalogue = ArcadeModuleCatalogue(project.dependencies)
 
-        val arcade = project.configurations.register(ARCADE_CONFIGURATION) {
-            description = "Arcade modules declared with arcade { modules(...) }"
+        val arcade = this.registerModules(
+            project, extension, catalogue, extension.modules, ARCADE_CONFIGURATION,
+            "Arcade modules declared with arcade { modules(...) }"
+        )
+        val arcadeDev = this.registerModules(
+            project, extension, catalogue, extension.devModules, ARCADE_DEV_CONFIGURATION,
+            "Development only arcade modules declared with arcade { devModules(...) }"
+        )
+
+        val arcadeClasspath = this.registerClasspath(
+            project, arcade, ARCADE_CLASSPATH_CONFIGURATION,
+            "Every arcade module reachable from the declared ones"
+        )
+        val arcadeDevClasspath = this.registerClasspath(
+            project, arcadeDev, ARCADE_DEV_CLASSPATH_CONFIGURATION,
+            "Every arcade module reachable from the declared development only ones"
+        )
+
+        val resolvedModules = this.resolveModules(extension, arcadeClasspath)
+        val resolvedDevModules = this.resolveModules(extension, arcadeDevClasspath)
+
+        this.configureInclude(project, extension, arcadeClasspath)
+        this.configureRepository(project)
+
+        project.configurations.named { it == LOCAL_RUNTIME_CONFIGURATION }.configureEach {
+            extendsFrom(arcadeDev.get())
+        }
+
+        project.plugins.withType(JavaPlugin::class.java) {
+            project.configurations.named(JavaPlugin.IMPLEMENTATION_CONFIGURATION_NAME) { extendsFrom(arcade.get()) }
+            project.configurations.named(JavaPlugin.COMPILE_ONLY_CONFIGURATION_NAME) { extendsFrom(arcadeDev.get()) }
+            configureModDependencies(project, extension, arcadeClasspath)
+            configureVerification(project, extension, resolvedModules, resolvedDevModules)
+        }
+    }
+
+    private fun registerModules(
+        project: Project,
+        extension: ArcadeExtension,
+        catalogue: ArcadeModuleCatalogue,
+        declared: Provider<Set<String>>,
+        name: String,
+        description: String
+    ): Provider<Configuration> {
+        return project.configurations.register(name) {
+            this.description = description
             isCanBeConsumed = false
             isCanBeResolved = false
             dependencies.addAllLater(project.provider {
-                val modules = extension.modules.get()
+                val modules = declared.get()
                 if (modules.isEmpty()) {
                     return@provider emptyList()
                 }
@@ -41,12 +85,19 @@ public class JoystickPlugin: Plugin<Project> {
                 modules.map { project.dependencies.create("$group:$it:$version") }
             })
         }
+    }
 
-        val arcadeClasspath = project.configurations.register(ARCADE_CLASSPATH_CONFIGURATION) {
-            description = "Every arcade module reachable from the declared ones"
+    private fun registerClasspath(
+        project: Project,
+        modules: Provider<Configuration>,
+        name: String,
+        description: String
+    ): Provider<Configuration> {
+        return project.configurations.register(name) {
+            this.description = description
             isCanBeConsumed = false
             isCanBeResolved = true
-            extendsFrom(arcade.get())
+            extendsFrom(modules.get())
             attributes {
                 attribute(Usage.USAGE_ATTRIBUTE, project.objects.named(Usage::class.java, Usage.JAVA_RUNTIME))
                 attribute(Category.CATEGORY_ATTRIBUTE, project.objects.named(Category::class.java, Category.LIBRARY))
@@ -54,20 +105,16 @@ public class JoystickPlugin: Plugin<Project> {
                 attribute(Bundling.BUNDLING_ATTRIBUTE, project.objects.named(Bundling::class.java, Bundling.EXTERNAL))
             }
         }
+    }
 
-        val resolvedModules: Provider<Map<String, ArcadeComponent>> = arcadeClasspath.flatMap { config ->
+    private fun resolveModules(
+        extension: ArcadeExtension,
+        classpath: Provider<Configuration>
+    ): Provider<Map<String, ArcadeComponent>> {
+        return classpath.flatMap { config ->
             config.incoming.resolutionResult.rootComponent.zip(extension.group) { root, group ->
                 collectArcadeComponents(root, group)
             }
-        }
-
-        this.configureInclude(project, extension, arcadeClasspath)
-        this.configureRepository(project)
-
-        project.plugins.withType(JavaPlugin::class.java) {
-            project.configurations.named(JavaPlugin.IMPLEMENTATION_CONFIGURATION_NAME) { extendsFrom(arcade.get()) }
-            configureModDependencies(project, extension, arcadeClasspath)
-            configureVerification(project, extension, resolvedModules)
         }
     }
 
@@ -143,7 +190,8 @@ public class JoystickPlugin: Plugin<Project> {
     private fun configureVerification(
         project: Project,
         extension: ArcadeExtension,
-        resolvedModules: Provider<Map<String, ArcadeComponent>>
+        resolvedModules: Provider<Map<String, ArcadeComponent>>,
+        resolvedDevModules: Provider<Map<String, ArcadeComponent>>
     ) {
         val sourceSets = project.extensions.getByType(SourceSetContainer::class.java)
         val compileClasspath = project.configurations.named(sourceSets.getByName("main").compileClasspathConfigurationName)
@@ -152,7 +200,7 @@ public class JoystickPlugin: Plugin<Project> {
             group = LifecycleBasePlugin.VERIFICATION_GROUP
             description = "Checks every arcade module on the compile classpath was declared with arcade { modules(...) }"
             onlyIf { extension.verify.get() }
-            declared.set(resolvedModules.map { it.keys })
+            declared.set(resolvedModules.zip(resolvedDevModules) { modules, dev -> modules.keys + dev.keys })
             this.compileClasspath.set(compileClasspath.flatMap { config ->
                 config.incoming.resolutionResult.rootComponent.zip(extension.group) { root, group ->
                     collectArcadeComponents(root, group).mapValues { (_, component) ->
@@ -182,7 +230,10 @@ public class JoystickPlugin: Plugin<Project> {
         const val ARCADE_GROUP = "net.casualchampionships"
         const val ARCADE_CONFIGURATION = "arcade"
         const val ARCADE_CLASSPATH_CONFIGURATION = "arcadeClasspath"
+        const val ARCADE_DEV_CONFIGURATION = "arcadeDev"
+        const val ARCADE_DEV_CLASSPATH_CONFIGURATION = "arcadeDevClasspath"
         const val INCLUDE_CONFIGURATION = "include"
+        const val LOCAL_RUNTIME_CONFIGURATION = "localRuntime"
         const val VERIFY_TASK_NAME = "verifyArcadeModules"
         const val FABRIC_MOD_JSON = "fabric.mod.json"
 

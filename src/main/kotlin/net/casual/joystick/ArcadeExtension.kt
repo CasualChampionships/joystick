@@ -50,6 +50,13 @@ public abstract class ArcadeExtension {
     public abstract val modules: SetProperty<String>
 
     /**
+     * The declared development only modules, by artifact name, e.g. `arcade-datagen`.
+     * These are on the compile and development runtime classpaths, but are never
+     * nested in the built jar or added to `depends` in `fabric.mod.json`.
+     */
+    public abstract val devModules: SetProperty<String>
+
+    /**
      * Declares arcade modules to depend on.
      *
      * @param names Module names, with or without the `arcade-` prefix.
@@ -65,6 +72,29 @@ public abstract class ArcadeExtension {
      */
     public fun module(name: String) {
         this.modules.add(normalise(name))
+    }
+
+    /**
+     * Declares arcade modules that are only needed during development,
+     * for example `datagen`.
+     *
+     * Any module that is only reachable from these is also treated as
+     * development only, so it will not be verified as missing at runtime.
+     *
+     * @param names Module names, with or without the `arcade-` prefix.
+     */
+    public fun devModules(vararg names: String) {
+        this.devModules.addAll(names.map(::normalise))
+    }
+
+    /**
+     * Declares an arcade module that is only needed during development.
+     *
+     * @param name The module name, with or without the `arcade-` prefix.
+     * @see devModules
+     */
+    public fun devModule(name: String) {
+        this.devModules.add(normalise(name))
     }
 
     private fun normalise(name: String): String {
