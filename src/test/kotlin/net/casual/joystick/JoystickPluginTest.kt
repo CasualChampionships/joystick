@@ -247,7 +247,7 @@ class JoystickPluginTest {
         .let { if (expectFailure) it.buildAndFail() else it.build() }
 
     private companion object {
-        const val ARCADE_MOD_VERSION = "0.14.0-beta.3"
+        const val ARCADE_MOD_VERSION = "0.14.0-beta.7"
         const val ARCADE = "$ARCADE_MOD_VERSION+26.3"
         val DEPEND_ON_X = """
             repositories {

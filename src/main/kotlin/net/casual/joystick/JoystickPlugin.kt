@@ -98,13 +98,11 @@ public class JoystickPlugin: Plugin<Project> {
     }
 
     private fun configureRepository(project: Project) {
-        project.afterEvaluate {
-            for ((name, url, groups) in REPOSITORIES) {
-                project.repositories.maven {
-                    this.name = name
-                    this.url = project.uri(url)
-                    content { groups.forEach(::includeGroup) }
-                }
+        for ((name, url, groups) in REPOSITORIES) {
+            project.repositories.maven {
+                this.name = name
+                this.url = project.uri(url)
+                content { groups.forEach(::includeGroup) }
             }
         }
     }
