@@ -15,19 +15,28 @@ internal object FabricModJson {
 
     private val gson = GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create()
 
-    fun readModIdAndVersion(jar: File): Pair<String, String>? {
-        ZipFile(jar).use { zip ->
-            val entry = zip.getEntry(FILE_NAME) ?: return null
-            val json = zip.getInputStream(entry).reader().use { JsonParser.parseReader(it).asJsonObject }
-            val id = json.get("id")?.asString ?: return null
-            val version = json.get("version")?.asString ?: return null
-            return id to version
-        }
+    fun readModIdAndVersion(artifact: File): Pair<String, String>? {
+        val json = readModJson(artifact) ?: return null
+        val id = json.get("id")?.asString ?: return null
+        val version = json.get("version")?.asString ?: return null
+        return id to version
     }
 
-    fun readBundledModIds(jar: File): Set<String> {
+    fun readBundledModIds(artifact: File): Set<String> {
         val ids = LinkedHashSet<String>()
-        ZipFile(jar).use { zip ->
+        if (artifact.isDirectory) {
+            val jars = artifact.resolve(NESTED_PREFIX).listFiles() ?: return ids
+            for (jar in jars.sorted()) {
+                if (jar.isFile && jar.extension == "jar") {
+                    jar.inputStream().use { collectBundledModIds(it, ids) }
+                }
+            }
+            return ids
+        }
+        if (!isArchive(artifact)) {
+            return ids
+        }
+        ZipFile(artifact).use { zip ->
             for (entry in zip.entries()) {
                 if (isNestedJar(entry.name)) {
                     zip.getInputStream(entry).use { collectBundledModIds(it, ids) }
@@ -35,6 +44,27 @@ internal object FabricModJson {
             }
         }
         return ids
+    }
+
+    private fun readModJson(artifact: File): JsonObject? {
+        if (artifact.isDirectory) {
+            val file = artifact.resolve(FILE_NAME)
+            if (!file.isFile) {
+                return null
+            }
+            return file.reader().use { JsonParser.parseReader(it).asJsonObject }
+        }
+        if (!isArchive(artifact)) {
+            return null
+        }
+        ZipFile(artifact).use { zip ->
+            val entry = zip.getEntry(FILE_NAME) ?: return null
+            return zip.getInputStream(entry).reader().use { JsonParser.parseReader(it).asJsonObject }
+        }
+    }
+
+    private fun isArchive(artifact: File): Boolean {
+        return artifact.isFile && (artifact.extension == "jar" || artifact.extension == "zip")
     }
 
     private fun collectBundledModIds(jar: InputStream, ids: MutableSet<String>) {

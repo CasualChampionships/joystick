@@ -152,6 +152,23 @@ class JoystickPluginTest {
     }
 
     @Test
+    fun `verification passes when a project dependency is on the classpath`() {
+        projectDir.resolve("settings.gradle.kts").appendText("\ninclude(\"sub\")\n")
+        projectDir.resolve("sub/src/main/java/com/example").mkdirs()
+        projectDir.resolve("sub/src/main/java/com/example/Sub.java").writeText("package com.example;\npublic class Sub { }\n")
+        projectDir.resolve("sub/build.gradle.kts").writeText("plugins { `java-library` }\n")
+        writeBuild(modules = "\"nametags\"", extra = """
+            dependencies {
+                implementation(project(":sub"))
+            }
+        """.trimIndent())
+
+        val result = run("verifyArcadeModules")
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":verifyArcadeModules")?.outcome)
+    }
+
+    @Test
     fun `verification passes when everything is declared`() {
         writeBuild(modules = "\"nametags\", \"commands\"")
 
