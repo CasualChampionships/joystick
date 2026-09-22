@@ -29,7 +29,7 @@ plugins {
 arcade {
     // Whatever version arcade you are targetting
     // The latest version can be found here: 
-    // https://maven.supersanta.me/snapshots/net/casualchampionships/arcade/maven-metadata.xml
+    // https://maven.casualchampionships.net/snapshots/net/casualchampionships/arcade/maven-metadata.xml
     version = "<arcade-version>"
     modules("nametags", "commands")
 }
