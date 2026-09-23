@@ -23,7 +23,7 @@ The plugin is published to the Gradle plugin portal so you can simply write in y
 
 ```kts
 plugins {
-    id("net.casualchampionships.joystick") version "1.0.4"
+    id("net.casualchampionships.joystick") version "1.0.5"
 }
 
 arcade {
