@@ -169,6 +169,36 @@ class JoystickPluginTest {
     }
 
     @Test
+    fun `verification ignores artifacts in the arcade group that are not arcade modules`() {
+        val dir = projectDir.resolve("repo/net/casualchampionships/casual-database-core/1.0")
+        dir.mkdirs()
+        dir.resolve("casual-database-core-1.0.pom").writeText(
+            """
+            <project>
+              <modelVersion>4.0.0</modelVersion>
+              <groupId>net.casualchampionships</groupId>
+              <artifactId>casual-database-core</artifactId>
+              <version>1.0</version>
+            </project>
+            """.trimIndent()
+        )
+        dir.resolve("casual-database-core-1.0.jar").writeBytes(zip())
+        writeBuild(modules = "\"nametags\"", extra = """
+            repositories {
+                maven(uri("repo"))
+            }
+
+            dependencies {
+                implementation("net.casualchampionships:casual-database-core:1.0")
+            }
+        """.trimIndent())
+
+        val result = run("verifyArcadeModules")
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":verifyArcadeModules")?.outcome)
+    }
+
+    @Test
     fun `verification passes when everything is declared`() {
         writeBuild(modules = "\"nametags\", \"commands\"")
 

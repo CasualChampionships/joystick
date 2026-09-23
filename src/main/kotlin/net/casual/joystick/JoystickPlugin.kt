@@ -43,8 +43,9 @@ public class JoystickPlugin: Plugin<Project> {
             "Every arcade module reachable from the declared development only ones"
         )
 
-        val resolvedModules = this.resolveModules(extension, arcadeClasspath)
-        val resolvedDevModules = this.resolveModules(extension, arcadeDevClasspath)
+        val knownModules = this.knownModules(project, extension, catalogue)
+        val resolvedModules = this.resolveModules(extension, arcadeClasspath, knownModules)
+        val resolvedDevModules = this.resolveModules(extension, arcadeDevClasspath, knownModules)
 
         this.configureInclude(project, extension, arcadeClasspath)
         this.configureRepository(project)
@@ -57,7 +58,7 @@ public class JoystickPlugin: Plugin<Project> {
             project.configurations.named(JavaPlugin.IMPLEMENTATION_CONFIGURATION_NAME) { extendsFrom(arcade.get()) }
             project.configurations.named(JavaPlugin.COMPILE_ONLY_CONFIGURATION_NAME) { extendsFrom(arcadeDev.get()) }
             configureModDependencies(project, extension, arcadeClasspath)
-            configureVerification(project, extension, resolvedModules, resolvedDevModules)
+            configureVerification(project, extension, knownModules, resolvedModules, resolvedDevModules)
         }
     }
 
@@ -107,14 +108,25 @@ public class JoystickPlugin: Plugin<Project> {
         }
     }
 
+    private fun knownModules(
+        project: Project,
+        extension: ArcadeExtension,
+        catalogue: ArcadeModuleCatalogue
+    ): Provider<Set<String>> {
+        val declared = extension.modules.zip(extension.devModules) { modules, dev -> modules + dev }
+        return extension.version.zip(extension.group) { version, group -> catalogue.modules(group, version) }
+            .zip(declared) { aggregate, modules -> aggregate + modules }
+            .orElse(project.provider { emptySet() })
+    }
+
     private fun resolveModules(
         extension: ArcadeExtension,
-        classpath: Provider<Configuration>
+        classpath: Provider<Configuration>,
+        knownModules: Provider<Set<String>>
     ): Provider<Map<String, ArcadeComponent>> {
         return classpath.flatMap { config ->
-            config.incoming.resolutionResult.rootComponent.zip(extension.group) { root, group ->
-                collectArcadeComponents(root, group)
-            }
+            config.incoming.resolutionResult.rootComponent.zip(extension.group) { root, group -> root to group }
+                .zip(knownModules) { (root, group), modules -> collectArcadeComponents(root, group, modules) }
         }
     }
 
@@ -190,6 +202,7 @@ public class JoystickPlugin: Plugin<Project> {
     private fun configureVerification(
         project: Project,
         extension: ArcadeExtension,
+        knownModules: Provider<Set<String>>,
         resolvedModules: Provider<Map<String, ArcadeComponent>>,
         resolvedDevModules: Provider<Map<String, ArcadeComponent>>
     ) {
@@ -202,11 +215,12 @@ public class JoystickPlugin: Plugin<Project> {
             onlyIf { extension.verify.get() }
             declared.set(resolvedModules.zip(resolvedDevModules) { modules, dev -> modules.keys + dev.keys })
             this.compileClasspath.set(compileClasspath.flatMap { config ->
-                config.incoming.resolutionResult.rootComponent.zip(extension.group) { root, group ->
-                    collectArcadeComponents(root, group).mapValues { (_, component) ->
-                        component.path.lastOrNull() ?: "direct dependency"
+                config.incoming.resolutionResult.rootComponent.zip(extension.group) { root, group -> root to group }
+                    .zip(knownModules) { (root, group), modules ->
+                        collectArcadeComponents(root, group, modules).mapValues { (_, component) ->
+                            component.path.lastOrNull() ?: "direct dependency"
+                        }
                     }
-                }
             })
             bundled.set(compileClasspath.flatMap { config ->
                 val group = extension.group.get()

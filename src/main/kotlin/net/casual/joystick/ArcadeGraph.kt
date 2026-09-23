@@ -13,7 +13,8 @@ internal data class ArcadeComponent(val name: String, val version: String, val p
 
 internal fun collectArcadeComponents(
     root: ResolvedComponentResult,
-    group: String
+    group: String,
+    modules: Set<String>
 ): Map<String, ArcadeComponent> {
     val found = LinkedHashMap<String, ArcadeComponent>()
     val visited = HashSet<ResolvedComponentResult>()
@@ -36,7 +37,7 @@ internal fun collectArcadeComponents(
             }
             val id = selected.id
             val next = path + selected.id.displayName
-            if (id is ModuleComponentIdentifier && id.group == group) {
+            if (id is ModuleComponentIdentifier && id.group == group && id.module in modules) {
                 found.putIfAbsent(id.module, ArcadeComponent(id.module, id.version, path))
             }
             queue.add(selected to next)
