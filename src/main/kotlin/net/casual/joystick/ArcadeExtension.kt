@@ -57,6 +57,18 @@ public abstract class ArcadeExtension {
     public abstract val devModules: SetProperty<String>
 
     /**
+     * The declared test only modules, by artifact name, e.g. `arcade-gametest`.
+     * These are on the classpaths of the [testSourceSets], but are never nested
+     * in the built jar or added to `depends` in `fabric.mod.json`.
+     */
+    public abstract val testModules: SetProperty<String>
+
+    /**
+     * The names of the source sets that receive the [testModules],
+     * `gametest` by default.
+     */
+    public abstract val testSourceSets: SetProperty<String>
+    /**
      * Declares arcade modules to depend on.
      *
      * @param names Module names, with or without the `arcade-` prefix.
@@ -95,6 +107,36 @@ public abstract class ArcadeExtension {
      */
     public fun devModule(name: String) {
         this.devModules.add(normalise(name))
+    }
+
+    /**
+     * Declares arcade modules that are only needed by tests,
+     * for example `gametest`.
+     *
+     * @param names Module names, with or without the `arcade-` prefix.
+     * @see testModules
+     */
+    public fun testModules(vararg names: String) {
+        this.testModules.addAll(names.map(::normalise))
+    }
+
+    /**
+     * Declares an arcade module that is only needed by tests.
+     *
+     * @param name The module name, with or without the `arcade-` prefix.
+     * @see testModules
+     */
+    public fun testModule(name: String) {
+        this.testModules.add(normalise(name))
+    }
+
+    /**
+     * Sets the source sets that receive the [testModules], replacing the defaults.
+     *
+     * @param names The source set names, e.g. `testmod`.
+     */
+    public fun testSourceSets(vararg names: String) {
+        this.testSourceSets.set(names.toSet())
     }
 
     private fun normalise(name: String): String {

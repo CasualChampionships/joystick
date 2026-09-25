@@ -22,6 +22,7 @@ public class JoystickPlugin: Plugin<Project> {
         extension.include.convention(true)
         extension.declareDependencies.convention(true)
         extension.verify.convention(true)
+        extension.testSourceSets.convention(DEFAULT_TEST_SOURCE_SETS)
 
         val catalogue = ArcadeModuleCatalogue(project.dependencies)
 
@@ -32,6 +33,10 @@ public class JoystickPlugin: Plugin<Project> {
         val arcadeDev = this.registerModules(
             project, extension, catalogue, extension.devModules, ARCADE_DEV_CONFIGURATION,
             "Development only arcade modules declared with arcade { devModules(...) }"
+        )
+        val arcadeTest = this.registerModules(
+            project, extension, catalogue, extension.testModules, ARCADE_TEST_CONFIGURATION,
+            "Test only arcade modules declared with arcade { testModules(...) }"
         )
 
         val arcadeClasspath = this.registerClasspath(
@@ -57,6 +62,7 @@ public class JoystickPlugin: Plugin<Project> {
         project.plugins.withType(JavaPlugin::class.java) {
             project.configurations.named(JavaPlugin.IMPLEMENTATION_CONFIGURATION_NAME) { extendsFrom(arcade.get()) }
             project.configurations.named(JavaPlugin.COMPILE_ONLY_CONFIGURATION_NAME) { extendsFrom(arcadeDev.get()) }
+            configureTestModules(project, extension, arcadeTest)
             configureModDependencies(project, extension, arcadeClasspath)
             configureVerification(project, extension, knownModules, resolvedModules, resolvedDevModules)
         }
@@ -166,6 +172,22 @@ public class JoystickPlugin: Plugin<Project> {
         }
     }
 
+    private fun configureTestModules(
+        project: Project,
+        extension: ArcadeExtension,
+        arcadeTest: Provider<Configuration>
+    ) {
+        val sourceSets = project.extensions.getByType(SourceSetContainer::class.java)
+        sourceSets.configureEach {
+            val name = this.name
+            project.configurations.named(implementationConfigurationName) {
+                dependencies.addAllLater(extension.testSourceSets.map { selected ->
+                    if (name in selected) arcadeTest.get().dependencies.map { it.copy() } else emptyList()
+                })
+            }
+        }
+    }
+
     private fun configureModDependencies(
         project: Project,
         extension: ArcadeExtension,
@@ -246,10 +268,13 @@ public class JoystickPlugin: Plugin<Project> {
         const val ARCADE_CLASSPATH_CONFIGURATION = "arcadeClasspath"
         const val ARCADE_DEV_CONFIGURATION = "arcadeDev"
         const val ARCADE_DEV_CLASSPATH_CONFIGURATION = "arcadeDevClasspath"
+        const val ARCADE_TEST_CONFIGURATION = "arcadeTest"
         const val INCLUDE_CONFIGURATION = "include"
         const val LOCAL_RUNTIME_CONFIGURATION = "localRuntime"
         const val VERIFY_TASK_NAME = "verifyArcadeModules"
         const val FABRIC_MOD_JSON = "fabric.mod.json"
+
+        val DEFAULT_TEST_SOURCE_SETS = setOf("gametest")
 
         val REPOSITORIES = listOf(
             Triple("Arcade", "https://maven.casualchampionships.net/snapshots", listOf(ARCADE_GROUP, "com.github.ReplayMod")),

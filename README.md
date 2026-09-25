@@ -23,7 +23,7 @@ The plugin is published to the Gradle plugin portal so you can simply write in y
 
 ```kts
 plugins {
-    id("net.casualchampionships.joystick") version "1.0.5"
+    id("net.casualchampionships.joystick") version "1.0.6"
 }
 
 arcade {
@@ -48,7 +48,10 @@ depends on an arcade module.
 arcade {
     version = libs.versions.arcade // The version of arcade you're depending on
     modules("nametags")            // The modules you want to depend on, can be prefixed with arcade-
-    devModules("datagen")          // Modules only needed during development
+    devModules("datagen")          // The modules only needed during development
+    testModules("gametest")        // The modules only needed by tests
+    
+    testSourceSets("testmod")      // The source set that testModules use, "gametest" by default
 
     include = false                // Whether to JiJ the arcade modules, true by default
     declareDependencies = false    // Whether to update fabric.mod.json dependencies, true by default
